@@ -1,0 +1,125 @@
+version: '3.1'
+name: 'all_about_yourself'
+
+services:
+  postgres:
+    image: postgres:15
+    shm_size: 1gb
+    ports:
+      - ${POSTGRES_PORT:-5432}:5432
+    container_name: ${COMPOSE_PROJECT_NAME}_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_ADMIN_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+    networks:
+      - main
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_ADMIN_USERNAME:-postgres}"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  metabase:
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    build:
+      context: metabase
+    ports:
+      - ${METABASE_PORT:-3000}:3000
+    container_name: ${COMPOSE_PROJECT_NAME}_metabase
+    networks:
+      - main
+    volumes:
+      - type: bind
+        source: .metabase
+        target: /metabase-data
+        bind:
+          create_host_path: true
+  terraform:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    build:
+      context: terraform
+    container_name: ${COMPOSE_PROJECT_NAME}_terraform_script
+    command: [ "apply", "-auto-approve" ]
+    environment:
+      - TF_VAR_postgres_host=postgres
+      - TF_VAR_postgres_port=5432
+      - TF_VAR_postgres_admin_database=postgres
+      - TF_VAR_postgres_admin_username=${POSTGRES_ADMIN_USERNAME:-postgres}
+      - TF_VAR_postgres_admin_password=${POSTGRES_ADMIN_PASSWORD}
+      - TF_VAR_postgres_database=${POSTGRES_DATABASE:-social_media}
+      - TF_VAR_postgres_load_role_name=${POSTGRES_LOAD_ROLE_NAME:-load_role}
+      - TF_VAR_postgres_load_role_password=${POSTGRES_LOAD_ROLE_PASSWORD}
+      - TF_VAR_postgres_transform_role_name=${POSTGRES_TRANSFORM_ROLE_NAME:-transform_role}
+      - TF_VAR_postgres_transform_role_password=${POSTGRES_TRANSFORM_ROLE_PASSWORD}
+      - TF_VAR_postgres_visualisation_role_name=${POSTGRES_VIS_ROLE_NAME:-visualisation_role}
+      - TF_VAR_postgres_visualisation_role_password=${POSTGRES_VIS_ROLE_PASSWORD}
+    networks:
+      - main
+  datafix:
+    depends_on:
+      terraform:
+        condition: service_completed_successfully
+    build:
+      context: https://github.com/mitchealex1/facebook-json-archive-encoding-fix.git#main
+    container_name: ${COMPOSE_PROJECT_NAME}_datafix
+    volumes:
+      - type: bind
+        source: ${DATA_DIRECTORY_PATH}
+        target: /usr/raw_data
+      - type: volume
+        source: facebook_data
+        target: /usr/data
+    command: [ "/usr/raw_data", "/usr/data" ]
+
+  load:
+    depends_on:
+      datafix:
+        condition: service_completed_successfully
+    build:
+      context: https://github.com/mitchealex1/simple-elt.git#main
+    container_name: ${COMPOSE_PROJECT_NAME}_load_script
+    volumes:
+      - type: volume
+        source: facebook_data
+        target: /usr/data
+    networks:
+      - main
+    environment:
+      - LOAD_POSTGRES_USER=${POSTGRES_LOAD_ROLE_NAME:-load_role}
+      - LOAD_POSTGRES_PASSWORD=${POSTGRES_LOAD_ROLE_PASSWORD}
+      - LOAD_POSTGRES_HOST=postgres
+      - LOAD_POSTGRES_PORT=5432
+      - LOAD_POSTGRES_DATABASE=${POSTGRES_DATABASE:-social_media}
+      - LOAD_POSTGRES_SCHEMA=load
+      - LOAD_DATA_DIRECTORY=/usr/data
+    command: [ "load", "messages" ]
+
+  transform:
+    depends_on:
+      load:
+        condition: service_completed_successfully
+    build:
+      context: https://github.com/mitchealex1/social-media-data-modelling.git#main
+    container_name: ${COMPOSE_PROJECT_NAME}_transform
+    networks:
+      - main
+    environment:
+      - POSTGRES_ROLE_NAME=${POSTGRES_TRANSFORM_ROLE_NAME:-transform_role}
+      - POSTGRES_ROLE_PASSWORD=${POSTGRES_TRANSFORM_ROLE_PASSWORD}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=${POSTGRES_DATABASE:-social_media}
+    command: [ "build" ]
+
+networks:
+  main:
+    name: ${COMPOSE_PROJECT_NAME}_network
+
+volumes:
+  facebook_data:
