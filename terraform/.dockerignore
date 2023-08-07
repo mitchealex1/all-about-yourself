@@ -1,5 +1,4 @@
 .dockerignore
-Dockerfile
 .terraform
 .terraform.lock.hcl
 terraform.tfstate*

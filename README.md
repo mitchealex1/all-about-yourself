@@ -52,6 +52,7 @@ export POSTGRES_LOAD_ROLE_PASSWORD='<password>'
 export POSTGRES_TRANSFORM_ROLE_PASSWORD='<password>'
 export POSTGRES_VIS_ROLE_PASSWORD='<password>'
 export DATA_DIRECTORY_PATH='<path/to/data/directory>'
+export METABASE_ADMIN_PASSWORD='<password>'
 ```
 
 ### Running the project 🏃‍♀️
