@@ -22,6 +22,12 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    volumes:
+      - type: bind
+        source: .postgres
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: true
 
   metabase:
     environment:
@@ -54,7 +60,7 @@ services:
     build:
       context: .
     container_name: ${COMPOSE_PROJECT_NAME}_bootstrap
-    command: [ "bootstrap.sh", "-e" ]
+    command: [ "bootstrap.sh" ]
     environment:
       - TF_VAR_postgres_host=postgres
       - TF_VAR_postgres_port=5432
